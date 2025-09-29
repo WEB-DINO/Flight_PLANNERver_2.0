@@ -203,7 +203,7 @@
 <script>
     // ⚠️ The AIRPORT_DATABASE is loaded asynchronously via the fetch API.
     let AIRPORT_DATABASE = {};
-    // CORRECTED URL: Using the standard raw GitHub path structure
+    // Corrected URL for raw GitHub content
     const DATA_URL = 'https://raw.githubusercontent.com/WEB-DINO/Flight_PLANNERver_2.0/main/Airport_data.json';
     
     // --- ELEMENTS ---
@@ -263,36 +263,61 @@
         routeLine = null;
     }
 
-    /**
-     * Looks up ICAO codes, plots the route, and displays information.
-     */
+    // --- MAIN LOGIC (UPDATED WITH LINEAR SEARCH) ---
+
     function plotRoute() {
-        // Ensure data is loaded
+        // Check that data is loaded
         if (Object.keys(AIRPORT_DATABASE).length === 0) {
             alert("Airport data is still loading or failed to load. Please wait or check the console.");
             return;
         }
         
-        // 1. Get and clean codes
+        // 1. Get and clean codes (forcing user input to UPPERCASE for search)
         const fromCode = document.getElementById('fromCode').value.toUpperCase().trim();
         const toCode = document.getElementById('toCode').value.toUpperCase().trim();
         const airwayType = document.getElementById('airwayType').value;
         
-        clearMap(); // Clear previous route
+        clearMap();
 
-        // 2. Look up airport data
-        airportA = AIRPORT_DATABASE[fromCode];
-        airportB = AIRPORT_DATABASE[toCode];
+        // 2. Lookup airport data using a Linear Search
+        let airportA = null;
+        let airportB = null;
+        
+        // --- START LOOPING SEARCH ---
+        for (const key in AIRPORT_DATABASE) {
+            const airport = AIRPORT_DATABASE[key];
+            
+            // Ensure the icao_code property exists before comparing
+            if (airport.icao_code) {
+                // We compare the UPPERCASE user input to the UPPERCASE ICAO code from the file
+                const airportICAO = airport.icao_code.toUpperCase();
+
+                // Check for Departure Airport
+                if (!airportA && airportICAO === fromCode) {
+                    airportA = airport;
+                }
+
+                // Check for Arrival Airport
+                if (!airportB && airportICAO === toCode) {
+                    airportB = airport;
+                }
+            }
+
+            // Stop looping once both are found to save time
+            if (airportA && airportB) break;
+        }
+        // ----------------------------
 
         if (!airportA || !airportB) {
-            alert(`One or both ICAO codes are not found in the database. Please ensure you entered a valid ICAO code (e.g., KJFK).`);
+            alert(`One or both ICAO codes (${fromCode}, ${toCode}) are not found in the database. Please ensure you entered a valid ICAO code (e.g., KJFK).`);
             document.getElementById('flightInfo').style.display = 'none';
             return;
         }
 
         // 3. Draw route and markers
-        const latLngA = [airportA.lat, airportA.lon];
-        const latLngB = [airportB.lat, airportB.lon];
+        // Use the correct property names from your JSON: latitude_deg and longitude_deg
+        const latLngA = [airportA.latitude_deg, airportA.longitude_deg];
+        const latLngB = [airportB.latitude_deg, airportB.longitude_deg];
         
         // Departure marker is orange
         fromMarker = L.marker(latLngA, { icon: orangeIcon }).addTo(map)
@@ -310,14 +335,14 @@
         map.fitBounds(routeLine.getBounds(), {padding: [50, 50]});
 
         // 4. Calculate and display flight info
-        const distanceNm = calculateDistance(airportA.lat, airportA.lon, airportB.lat, airportB.lon);
+        const distanceNm = calculateDistance(airportA.latitude_deg, airportA.longitude_deg, airportB.latitude_deg, airportB.longitude_deg);
 
         document.getElementById('depName').textContent = `${airportA.name} (${fromCode})`;
         document.getElementById('arrName').textContent = `${airportB.name} (${toCode})`;
         document.getElementById('distance').textContent = `${distanceNm} Nautical Miles`;
         document.getElementById('airwayDisp').textContent = airwayType === 'HIGH' ? 'High Airway (Jet)' : 'Low Airway (Prop/VFR)';
         
-        // Use placeholder for runways
+        // Placeholder for runways
         document.getElementById('depRunways').textContent = 'Simulated: 09/27, 18/36';
         document.getElementById('arrRunways').textContent = 'Simulated: 09/27, 18/36';
         
@@ -333,10 +358,10 @@
             return;
         }
 
-        const fromCode = document.getElementById('fromCode').value.toUpperCase().trim();
-        const toCode = document.getElementById('toCode').value.toUpperCase().trim();
+        const fromCode = airportA.icao_code.toUpperCase();
+        const toCode = airportB.icao_code.toUpperCase();
         const airwayType = document.getElementById('airwayType').value;
-        const distanceNm = calculateDistance(airportA.lat, airportA.lon, airportB.lat, airportB.lon);
+        const distanceNm = calculateDistance(airportA.latitude_deg, airportA.longitude_deg, airportB.latitude_deg, airportB.longitude_deg);
 
         // 2. Create the GeoFS-compatible JSON object
         const flightRouteData = {
@@ -348,16 +373,16 @@
                     name: fromCode,
                     fullName: airportA.name,
                     type: "DEPARTURE",
-                    lat: airportA.lat.toFixed(6),
-                    lon: airportA.lon.toFixed(6),
+                    lat: airportA.latitude_deg.toFixed(6),
+                    lon: airportA.longitude_deg.toFixed(6),
                     suggested_altitude_ft: airwayType === 'HIGH' ? 30000 : 10000 
                 },
                 {
                     name: toCode,
                     fullName: airportB.name,
                     type: "ARRIVAL",
-                    lat: airportB.lat.toFixed(6),
-                    lon: airportB.lon.toFixed(6),
+                    lat: airportB.latitude_deg.toFixed(6),
+                    lon: airportB.longitude_deg.toFixed(6),
                     suggested_altitude_ft: 500 // Approach altitude
                 }
             ],
