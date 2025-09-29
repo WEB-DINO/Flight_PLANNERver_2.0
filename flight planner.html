@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Global ICAO Flight Planner</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/SVRApR6WlAxZg3C9vI="
-        crossorigin=""/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <style>
         /* --- General & Layout --- */
         body { 
@@ -160,7 +158,7 @@
 <div class="sidebar">
     <h1>✈️ ICAO Flight Planner</h1>
     <p id="dataStatus" class="loading-message">
-        Loading airport data from CloudData
+        Loading airport data from GitHub...
     </p>
 
     <form id="routeForm">
@@ -183,7 +181,7 @@
             Generate GeoFS Route JSON
         </button>
     </form>
-    <p>Created By WEBDINOS [tenkasi]
+    
     <div id="flightInfo" class="info-box" style="display:none;">
         <h2>Route Details</h2>
         <p><strong>Departure:</strong> <span id="depName"></span></p>
@@ -200,14 +198,13 @@
 
 <div id="map"></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-2Pmvv0kuTBOzX1n5QopXfJgq6xtkV2h60rBGYR0SjgE="
-    crossorigin=""></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
-    // ⚠️ The AIRPORT_DATABASE is now loaded asynchronously via the fetch API.
+    // ⚠️ The AIRPORT_DATABASE is loaded asynchronously via the fetch API.
     let AIRPORT_DATABASE = {};
-    const DATA_URL = 'https://raw.githubusercontent.com/WEB-DINO/Flight_PLANNERver_2.0/refs/heads/main/Airport_data.json';
+    // CORRECTED URL: Using the standard raw GitHub path structure
+    const DATA_URL = 'https://raw.githubusercontent.com/WEB-DINO/Flight_PLANNERver_2.0/main/Airport_data.json';
     
     // --- ELEMENTS ---
     const plotButton = document.getElementById('plotButton');
@@ -385,4 +382,39 @@
     
     // --- ASYNCHRONOUS DATA LOADING ---
 
-    async function loadAirportData
+    async function loadAirportData() {
+        try {
+            dataStatus.textContent = 'Fetching data...';
+            const response = await fetch(DATA_URL);
+            
+            if (!response.ok) {
+                // If we get a 404 or other network error
+                throw new Error(`HTTP error! Status: ${response.status}. Check if the URL is correct and the file exists.`);
+            }
+
+            const data = await response.json();
+            
+            // Assign the fetched data to the global variable
+            AIRPORT_DATABASE = data;
+            
+            // Enable the interface
+            dataStatus.textContent = `✅ Data Loaded! ${Object.keys(AIRPORT_DATABASE).length} airports ready.`;
+            dataStatus.style.backgroundColor = '#218838'; // Green background for success
+            plotButton.disabled = false;
+            downloadButton.disabled = false;
+            console.log(`Successfully loaded ${Object.keys(AIRPORT_DATABASE).length} airports.`);
+
+        } catch (error) {
+            console.error('Failed to load airport data:', error);
+            dataStatus.textContent = '❌ Data Load FAILED! Check console for errors.';
+            dataStatus.style.backgroundColor = '#dc3545'; // Red background for failure
+        }
+    }
+
+    // Start the data loading process when the page finishes setting up
+    loadAirportData();
+
+</script>
+
+</body>
+</html>
