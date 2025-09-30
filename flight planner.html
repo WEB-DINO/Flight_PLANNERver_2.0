@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global ICAO Flight Planner (Detailed)</title>
+    <title>Global ICAO Flight Planner (Generated Route)</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <style>
         /* --- General & Layout --- */
@@ -31,7 +31,6 @@
             height: 100%; 
             background-color: #212536; 
         }
-        /* ... (styles remain the same) ... */
         h1 { 
             color: #ff9900;
             font-size: 1.8em; 
@@ -144,11 +143,11 @@
     </p>
 
     <form id="routeForm">
-        <label for="routeFile">Detailed Route File URL/Name:</label>
-        <input type="text" id="routeFile" name="routeFile" 
-               placeholder="e.g., VABB-OTHH.json" 
-               value="VABB-OTHH.json" 
-               required>
+        <label for="fromCode">Departure Airport ICAO Code:</label>
+        <input type="text" id="fromCode" name="fromCode" placeholder="Departure ICAO (4-letters)" required maxlength="4">
+
+        <label for="toCode">Arrival Airport ICAO Code:</label>
+        <input type="text" id="toCode" name="toCode" placeholder="Arrival ICAO (4-letters)" required maxlength="4">
 
         <label for="airwayType">Airway Type:</label>
         <select id="airwayType" name="airwayType" required>
@@ -156,27 +155,27 @@
             <option value="LOW">LOW (Prop/VFR)</option>
         </select>
 
-        <button type="button" id="plotButton" onclick="plotDetailedRoute()" disabled>
-            Plot Detailed Route
+        <button type="button" id="plotButton" onclick="plotRoute()" disabled>
+            Plot Generated Route
         </button>
         <button type="button" id="downloadButton" onclick="generateAndDownloadJson()" disabled>
-            Generate Route Summary JSON
+            Generate Waypoint JSON
         </button>
     </form>
     
     <div id="flightInfo" class="info-box" style="display:none;">
-        <h2>Summary</h2>
+        <h2>Generated Route Summary</h2>
         <p><strong>Departure:</strong> <span id="depName"></span></p>
         <p><strong>Arrival:</strong> <span id="arrName"></span></p>
         <p><strong>Total Distance:</strong> <span id="distance">N/A</span></p>
-        <p><strong>Total Waypoints:</strong> <span id="totalWaypoints">N/A</span></p>
+        <p><strong>Waypoints Generated:</strong> <span id="totalWaypoints">N/A</span></p>
         
         <h2>Waypoint Details</h2>
         <div id="waypointDetails" class="waypoint-details">
             </div>
 
         <h2>Operational Info</h2>
-        <p class="alert">Runway info is placeholder. Use real charts for flight!</p>
+        <p class="alert">Waypoints are auto-generated and NOT based on actual airways. Use real charts for flight!</p>
         <p><strong>Departure Runways:</strong> <span id="depRunways">Simulated: 09/27, 18/36</span></p>
         <p><strong>Arrival Runways:</strong> <span id="arrRunways">Simulated: 09/27, 18/36</span></p>
     </div>
@@ -187,11 +186,11 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
-    // Global variable to hold the main airport database (for lookup purposes only)
+    // Global variable to hold the main airport database
     let AIRPORT_DATABASE = {};
-    // Global variable to hold the currently loaded route data
-    let CURRENT_ROUTE_DATA = null;
-
+    // Global variable to hold the currently generated waypoints
+    let GENERATED_WAYPOINTS = [];
+    
     // URL to your full airport database (for lookup)
     const AIRPORT_DATA_URL = 'https://raw.githubusercontent.com/WEB-DINO/Flight_PLANNERver_2.0/main/Airport_data.json';
     
@@ -228,8 +227,8 @@
         iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
     });
 
-    // --- HELPER FUNCTIONS ---
-
+    // --- GEOMETRY HELPER FUNCTIONS ---
+    
     /** Calculates the great-circle distance between two points (Haversine formula). */
     function calculateDistance(lat1, lon1, lat2, lon2) {
         const R = 6371; // Radius of Earth in kilometers
@@ -262,174 +261,240 @@
         return Math.round(brng);
     }
 
+    /** Calculates the midpoint of a great-circle arc. */
+    function calculateMidpoint(lat1, lon1, lat2, lon2) {
+        lat1 = lat1 * (Math.PI / 180);
+        lon1 = lon1 * (Math.PI / 180);
+        lat2 = lat2 * (Math.PI / 180);
+        lon2 = lon2 * (Math.PI / 180);
+
+        const dLon = lon2 - lon1;
+        const Bx = Math.cos(lat2) * Math.cos(dLon);
+        const By = Math.cos(lat2) * Math.sin(dLon);
+        
+        let lat3 = Math.atan2(Math.sin(lat1) + Math.sin(lat2), Math.sqrt((Math.cos(lat1) + Bx) * (Math.cos(lat1) + Bx) + By * By));
+        let lon3 = lon1 + Math.atan2(By, Math.cos(lat1) + Bx);
+
+        return {
+            lat: lat3 * (180 / Math.PI),
+            lon: lon3 * (180 / Math.PI)
+        };
+    }
+    
     /** Clears all layers from the map layer group. */
     function clearMap() {
         routeLayerGroup.clearLayers();
+        GENERATED_WAYPOINTS = [];
     }
 
-    // --- MAIN DETAILED ROUTE PLOTTING LOGIC ---
+    // --- MAIN ROUTE PLOTTING LOGIC (GENERATES WAYPOINTS) ---
 
-    async function plotDetailedRoute() {
-        clearMap();
-
-        const routeFileName = document.getElementById('routeFile').value.trim();
+    function plotRoute() {
+        // 1. Initial Checks and Setup
+        if (Object.keys(AIRPORT_DATABASE).length === 0) {
+            alert("Airport data is still loading. Please wait or check the console.");
+            return;
+        }
+        
+        const fromCode = document.getElementById('fromCode').value.toUpperCase().trim();
+        const toCode = document.getElementById('toCode').value.toUpperCase().trim();
         const airwayType = document.getElementById('airwayType').value;
+
+        clearMap();
         const infoBox = document.getElementById('flightInfo');
         const waypointDetailsDiv = document.getElementById('waypointDetails');
-
         infoBox.style.display = 'none';
         waypointDetailsDiv.innerHTML = '';
+        downloadButton.disabled = true;
 
-        if (!routeFileName) {
-            alert("Please enter a route file name (e.g., VABB-OTHH.json).");
+        // 2. Lookup Departure and Arrival Airports (Using robust Linear Search)
+        let airportA = null;
+        let airportB = null;
+        
+        for (const key in AIRPORT_DATABASE) {
+            const airport = AIRPORT_DATABASE[key];
+            if (airport.icao_code) {
+                const airportICAO = airport.icao_code.toUpperCase();
+                if (!airportA && airportICAO === fromCode) {
+                    airportA = airport;
+                }
+                if (!airportB && airportICAO === toCode) {
+                    airportB = airport;
+                }
+            }
+            if (airportA && airportB) break;
+        }
+
+        if (!airportA || !airportB) {
+            alert(`One or both ICAO codes (${fromCode}, ${toCode}) are not found in the database.`);
             return;
         }
 
-        try {
-            // Assume the route file is hosted on GitHub next to the planner.html
-            const ROUTE_URL = 'https://raw.githubusercontent.com/WEB-DINO/Flight_PLANNERver_2.0/main/' + routeFileName;
-            const response = await fetch(ROUTE_URL);
-            
-            if (!response.ok) {
-                throw new Error(`Failed to load route file. Status: ${response.status}`);
-            }
+        const latA = airportA.latitude_deg;
+        const lonA = airportA.longitude_deg;
+        const latB = airportB.latitude_deg;
+        const lonB = airportB.longitude_deg;
+        const totalDistanceNm = calculateDistance(latA, lonA, latB, lonB);
 
-            CURRENT_ROUTE_DATA = await response.json();
+        // 3. Waypoint Generation (Midpoint Interpolation)
+        GENERATED_WAYPOINTS.push({
+            ident: fromCode,
+            name: airportA.name,
+            lat: latA,
+            lon: lonA,
+            type: 'APT',
+            alt: airportA.elevation_ft || (airwayType === 'HIGH' ? 35000 : 10000)
+        });
 
-            if (!CURRENT_ROUTE_DATA.nodes || CURRENT_ROUTE_DATA.nodes.length < 2) {
-                alert("Route file loaded, but it must contain an array of 'nodes' with at least two waypoints.");
-                return;
-            }
+        // Add a single midpoint for routes shorter than 1000 NM
+        if (totalDistanceNm < 1000) {
+            const mid = calculateMidpoint(latA, lonA, latB, lonB);
+            GENERATED_WAYPOINTS.push({
+                ident: 'WP' + totalDistanceNm.toFixed(0) + 'A',
+                name: 'Generated Midpoint',
+                lat: mid.lat,
+                lon: mid.lon,
+                type: 'FIX',
+                alt: airwayType === 'HIGH' ? 35000 : 10000
+            });
+        } 
+        // Add quarter points for longer routes
+        else {
+            const mid = calculateMidpoint(latA, lonA, latB, lonB);
+            const midA = calculateMidpoint(latA, lonA, mid.lat, mid.lon);
+            const midB = calculateMidpoint(mid.lat, mid.lon, latB, lonB);
 
-            const waypoints = CURRENT_ROUTE_DATA.nodes;
-            let totalDistanceNm = 0;
-            const routeCoordinates = [];
-            let detailsHtml = '';
-
-            // Get Departure and Arrival ICAO codes for the display
-            const depCode = waypoints[0].ident.toUpperCase();
-            const arrCode = waypoints[waypoints.length - 1].ident.toUpperCase();
-
-            // 1. Iterate through waypoints to draw segments and calculate distance/course
-            for (let i = 0; i < waypoints.length; i++) {
-                const node = waypoints[i];
-                const lat = node.lat;
-                const lon = node.lon;
-
-                routeCoordinates.push([lat, lon]);
-                
-                let markerIcon = blueIcon;
-                if (i === 0) {
-                    markerIcon = orangeIcon; // Departure
-                } else if (i === waypoints.length - 1) {
-                    markerIcon = redIcon; // Arrival
-                }
-
-                // Add marker
-                const marker = L.marker([lat, lon], { icon: markerIcon }).addTo(routeLayerGroup);
-                let popupContent = `<b>${node.ident}</b> (${node.name || node.type})<br>Alt: ${node.alt} ft`;
-
-                let segmentDistance = 0;
-                let segmentCourse = 0;
-                let viaAirway = '';
-                
-                if (i > 0) {
-                    const prevNode = waypoints[i - 1];
-                    const prevLat = prevNode.lat;
-                    const prevLon = prevNode.lon;
-                    
-                    segmentDistance = calculateDistance(prevLat, prevLon, lat, lon);
-                    segmentCourse = calculateBearing(prevLat, prevLon, lat, lon);
-                    totalDistanceNm += segmentDistance;
-
-                    viaAirway = prevNode.via ? ` via ${prevNode.via.ident} (${prevNode.via.type})` : '';
-
-                    // Add segment info to the popup
-                    popupContent += `<br>Dist from ${prevNode.ident}: ${segmentDistance.toFixed(1)} NM`;
-                    popupContent += `<br>Course: ${segmentCourse.toString().padStart(3, '0')}° True`;
-                    
-                    // Add to detailed sidebar list
-                    detailsHtml += `<p><b>${prevNode.ident}</b> to <b>${node.ident}</b>: ${segmentDistance.toFixed(1)} NM on ${segmentCourse.toString().padStart(3, '0')}° True${viaAirway}</p>`;
-                } else {
-                    detailsHtml += `<p><b>DEPARTURE:</b> ${depCode}</p>`;
-                }
-                
-                marker.bindPopup(popupContent);
-            }
-
-            // 2. Draw the full segmented polyline
-            L.polyline(routeCoordinates, {color: '#00ccff', weight: 4, opacity: 0.8}).addTo(routeLayerGroup);
-
-            // 3. Zoom map to fit the route
-            if (routeCoordinates.length > 0) {
-                map.fitBounds(L.latLngBounds(routeCoordinates), {padding: [50, 50]});
-            }
-
-            // 4. Update Sidebar Display
-            const depAirportName = waypoints[0].name || depCode;
-            const arrAirportName = waypoints[waypoints.length - 1].name || arrCode;
-            
-            document.getElementById('depName').textContent = `${depAirportName} (${depCode})`;
-            document.getElementById('arrName').textContent = `${arrAirportName} (${arrCode})`;
-            document.getElementById('distance').textContent = `${totalDistanceNm.toFixed(0)} Nautical Miles`;
-            document.getElementById('airwayDisp').textContent = airwayType === 'HIGH' ? 'High Airway (Jet)' : 'Low Airway (Prop/VFR)';
-            document.getElementById('totalWaypoints').textContent = waypoints.length;
-            
-            waypointDetailsDiv.innerHTML = detailsHtml;
-
-            document.getElementById('flightInfo').style.display = 'block';
-            downloadButton.disabled = false;
-
-        } catch (error) {
-            console.error('Failed to plot detailed route:', error);
-            alert(`Error plotting route: ${error.message}. Please check the file name and content.`);
+            GENERATED_WAYPOINTS.push({
+                ident: 'WP' + totalDistanceNm.toFixed(0) + 'A',
+                name: 'Generated Midpoint (Qtr 1)',
+                lat: midA.lat,
+                lon: midA.lon,
+                type: 'FIX',
+                alt: airwayType === 'HIGH' ? 37000 : 11000
+            });
+            GENERATED_WAYPOINTS.push({
+                ident: 'WP' + totalDistanceNm.toFixed(0) + 'B',
+                name: 'Generated Midpoint (Qtr 2)',
+                lat: mid.lat,
+                lon: mid.lon,
+                type: 'FIX',
+                alt: airwayType === 'HIGH' ? 39000 : 12000
+            });
+            GENERATED_WAYPOINTS.push({
+                ident: 'WP' + totalDistanceNm.toFixed(0) + 'C',
+                name: 'Generated Midpoint (Qtr 3)',
+                lat: midB.lat,
+                lon: midB.lon,
+                type: 'FIX',
+                alt: airwayType === 'HIGH' ? 35000 : 10000
+            });
         }
+
+        GENERATED_WAYPOINTS.push({
+            ident: toCode,
+            name: airportB.name,
+            lat: latB,
+            lon: lonB,
+            type: 'APT',
+            alt: 0
+        });
+
+        // 4. Plotting and Display
+        let routeCoordinates = [];
+        let detailsHtml = '';
+        
+        for (let i = 0; i < GENERATED_WAYPOINTS.length; i++) {
+            const node = GENERATED_WAYPOINTS[i];
+            const lat = node.lat;
+            const lon = node.lon;
+
+            routeCoordinates.push([lat, lon]);
+            
+            let markerIcon = blueIcon;
+            if (i === 0) markerIcon = orangeIcon;
+            else if (i === GENERATED_WAYPOINTS.length - 1) markerIcon = redIcon;
+
+            const marker = L.marker([lat, lon], { icon: markerIcon }).addTo(routeLayerGroup);
+            let popupContent = `<b>${node.ident}</b> (${node.name})<br>Alt: ${node.alt} ft`;
+
+            if (i > 0) {
+                const prevNode = GENERATED_WAYPOINTS[i - 1];
+                const segmentDistance = calculateDistance(prevNode.lat, prevNode.lon, lat, lon);
+                const segmentCourse = calculateBearing(prevNode.lat, prevNode.lon, lat, lon);
+                
+                popupContent += `<br>Dist from ${prevNode.ident}: ${segmentDistance.toFixed(1)} NM`;
+                popupContent += `<br>Course: ${segmentCourse.toString().padStart(3, '0')}° True`;
+                
+                detailsHtml += `<p><b>${prevNode.ident}</b> to <b>${node.ident}</b>: ${segmentDistance.toFixed(1)} NM on ${segmentCourse.toString().padStart(3, '0')}° True</p>`;
+            } else {
+                detailsHtml += `<p><b>DEPARTURE:</b> ${fromCode} (${airportA.name})</p>`;
+            }
+            
+            marker.bindPopup(popupContent);
+        }
+
+        L.polyline(routeCoordinates, {color: '#00ccff', weight: 4, opacity: 0.8}).addTo(routeLayerGroup);
+
+        if (routeCoordinates.length > 0) {
+            map.fitBounds(L.latLngBounds(routeCoordinates), {padding: [50, 50]});
+        }
+
+        // 5. Update Sidebar Display
+        document.getElementById('depName').textContent = `${airportA.name} (${fromCode})`;
+        document.getElementById('arrName').textContent = `${airportB.name} (${toCode})`;
+        document.getElementById('distance').textContent = `${totalDistanceNm.toFixed(0)} Nautical Miles`;
+        document.getElementById('totalWaypoints').textContent = GENERATED_WAYPOINTS.length;
+        
+        waypointDetailsDiv.innerHTML = detailsHtml;
+
+        document.getElementById('flightInfo').style.display = 'block';
+        downloadButton.disabled = false;
     }
 
     /**
-     * Gathers data and triggers the JSON download.
+     * Gathers the generated waypoint data and triggers the JSON download.
      */
     function generateAndDownloadJson() {
-        if (!CURRENT_ROUTE_DATA) {
-            alert("Please plot the route first.");
+        if (GENERATED_WAYPOINTS.length < 2) {
+            alert("Please plot a route first.");
             return;
         }
 
         const airwayType = document.getElementById('airwayType').value;
-        const depCode = CURRENT_ROUTE_DATA.nodes[0].ident.toUpperCase();
-        const arrCode = CURRENT_ROUTE_DATA.nodes[CURRENT_ROUTE_DATA.nodes.length - 1].ident.toUpperCase();
+        const depCode = GENERATED_WAYPOINTS[0].ident;
+        const arrCode = GENERATED_WAYPOINTS[GENERATED_WAYPOINTS.length - 1].ident;
         
-        // Re-calculate total distance for summary
         let totalDistanceNm = 0;
-        for (let i = 1; i < CURRENT_ROUTE_DATA.nodes.length; i++) {
-            const node = CURRENT_ROUTE_DATA.nodes[i];
-            const prevNode = CURRENT_ROUTE_DATA.nodes[i - 1];
+        for (let i = 1; i < GENERATED_WAYPOINTS.length; i++) {
+            const node = GENERATED_WAYPOINTS[i];
+            const prevNode = GENERATED_WAYPOINTS[i - 1];
             totalDistanceNm += calculateDistance(prevNode.lat, prevNode.lon, node.lat, node.lon);
         }
 
-        // Create a simplified summary JSON object
-        const flightRouteData = {
+        // Create the JSON object structured similarly to the file you uploaded
+        const jsonOutput = {
             routeId: `${depCode}-${arrCode}-${airwayType}`,
             airwayType: airwayType,
             totalDistanceNm: totalDistanceNm.toFixed(0),
-            totalWaypoints: CURRENT_ROUTE_DATA.nodes.length,
-            waypoints: CURRENT_ROUTE_DATA.nodes.map(node => ({
-                ident: node.ident,
+            nodes: GENERATED_WAYPOINTS.map(node => ({
                 type: node.type,
+                ident: node.ident,
                 name: node.name,
-                lat: node.lat.toFixed(6),
-                lon: node.lon.toFixed(6),
-                alt: node.alt
+                alt: node.alt,
+                lat: parseFloat(node.lat.toFixed(6)),
+                lon: parseFloat(node.lon.toFixed(6)),
+                // Add placeholder for 'via' to match the uploaded structure
+                via: node.type !== 'APT' ? { type: 'AWY-GEN', ident: 'GEN' } : null
             }))
         };
 
         // Convert object to JSON string and download
-        const jsonString = JSON.stringify(flightRouteData, null, 2); 
+        const jsonString = JSON.stringify(jsonOutput, null, 2); 
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `detailed_route_${depCode}_${arrCode}.json`;
+        a.download = `generated_route_${depCode}_${arrCode}.json`;
         
         document.body.appendChild(a);
         a.click();
@@ -438,11 +503,11 @@
         URL.revokeObjectURL(url);
     }
     
-    // --- ASYNCHRONOUS DATA LOADING (Initial, background load for general use) ---
+    // --- ASYNCHRONOUS DATA LOADING (Initial background load) ---
 
     async function loadAirportData() {
         try {
-            dataStatus.textContent = 'Fetching main airport index...';
+            dataStatus.textContent = 'Fetching main airport data...';
             const response = await fetch(AIRPORT_DATA_URL);
             
             if (!response.ok) {
@@ -452,18 +517,18 @@
             const data = await response.json();
             AIRPORT_DATABASE = data;
             
-            dataStatus.textContent = `✅ Index Loaded! ${Object.keys(AIRPORT_DATABASE).length} airports ready.`;
+            dataStatus.textContent = `✅ Data Loaded! ${Object.keys(AIRPORT_DATABASE).length} airports ready.`;
             dataStatus.style.backgroundColor = '#218838'; // Green background for success
             plotButton.disabled = false;
 
         } catch (error) {
-            console.error('Failed to load main airport data index:', error);
-            dataStatus.textContent = '⚠️ Index Load Warning (Detailed plotting is fine).';
-            dataStatus.style.backgroundColor = '#ffc107'; // Yellow background for warning
+            console.error('Failed to load main airport data:', error);
+            dataStatus.textContent = '❌ Data Load FAILED! Check console for errors.';
+            dataStatus.style.backgroundColor = '#dc3545'; // Red background for failure
         }
     }
 
-    // Start the data loading process when the page finishes setting up
+    // Start the data loading process
     loadAirportData();
 
 </script>
