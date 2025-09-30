@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global ICAO Flight Planner</title>
+    <title>Global ICAO Flight Planner (Detailed)</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <style>
         /* --- General & Layout --- */
@@ -11,15 +11,15 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
             margin: 0; 
             padding: 0; 
-            background-color: #1a1a2e; /* Dark Blue/Black */
-            color: #e4e4e4; /* Light text for dark background */
+            background-color: #1a1a2e;
+            color: #e4e4e4;
             display: flex; 
             height: 100vh; 
         }
         .sidebar { 
             width: 380px; 
             padding: 30px; 
-            background: #0f1021; /* Slightly darker sidebar */
+            background: #0f1021; 
             box-shadow: 4px 0 10px rgba(0, 0, 0, 0.4); 
             overflow-y: auto; 
             display: flex;
@@ -29,12 +29,11 @@
         #map { 
             flex-grow: 1; 
             height: 100%; 
-            background-color: #212536; /* Background for map container */
+            background-color: #212536; 
         }
-        
-        /* --- Typography & Headers --- */
+        /* ... (styles remain the same) ... */
         h1 { 
-            color: #ff9900; /* Bright Orange Accent */
+            color: #ff9900;
             font-size: 1.8em; 
             margin-top: 0; 
             padding-bottom: 15px;
@@ -47,28 +46,20 @@
             color: #cccccc; 
             font-size: 0.95em;
         }
-
-        /* --- Input Fields --- */
         input[type="text"], select { 
             width: 100%; 
             padding: 10px; 
             margin-bottom: 20px; 
-            border: 1px solid #3c3c66; /* Subtle border */
+            border: 1px solid #3c3c66;
             border-radius: 6px; 
             box-sizing: border-box; 
-            background-color: #2a2a44; /* Dark input background */
+            background-color: #2a2a44;
             color: #e4e4e4;
             font-size: 1em;
             transition: border-color 0.3s;
         }
-        input[type="text"]:focus, select:focus {
-            border-color: #ff9900; /* Orange focus glow */
-            outline: none;
-        }
-
-        /* --- Buttons --- */
         button { 
-            color: #0f1021; /* Dark text on bright button */
+            color: #0f1021;
             padding: 12px 15px; 
             border: none; 
             border-radius: 6px; 
@@ -79,33 +70,20 @@
             margin-top: 5px; 
             transition: background-color 0.3s ease, transform 0.1s; 
         }
-        /* Primary Plot Button (Orange) */
         #plotButton { 
             background-color: #ff9900;
         }
-        #plotButton:hover:not(:disabled) { 
-            background-color: #ffb347; 
-            transform: translateY(-1px);
-        }
-        /* Secondary Download Button (Green) */
         #downloadButton {
             background-color: #28a745;
             color: white;
         }
-        #downloadButton:hover:not(:disabled) {
-            background-color: #218838;
-            transform: translateY(-1px);
-        }
-        /* Disabled state */
         button:disabled {
             background-color: #555;
             cursor: not-allowed;
             opacity: 0.6;
         }
-        
-        /* --- Information Box --- */
         .info-box { 
-            border: 2px solid #ff9900; /* Orange border */
+            border: 2px solid #ff9900;
             padding: 20px; 
             border-radius: 8px; 
             margin-top: 25px; 
@@ -123,9 +101,6 @@
         .info-box p { 
             margin: 8px 0; 
             font-size: 0.9em;
-        }
-        .info-box strong {
-            color: #ffffff;
         }
         .alert { 
             color: #dc3545; 
@@ -145,11 +120,18 @@
             color: #fff;
             font-weight: bold;
         }
-
-        /* --- Map Overrides for Dark Mode --- */
-        .leaflet-popup-content-wrapper, .leaflet-popup-tip {
-            background: #0f1021 !important;
-            color: #e4e4e4 !important;
+        .waypoint-details {
+            max-height: 200px;
+            overflow-y: scroll;
+            margin-top: 15px;
+            border-top: 1px solid #2a2a44;
+            padding-top: 10px;
+        }
+        .waypoint-details p {
+            font-size: 0.8em;
+            margin: 4px 0;
+            padding-left: 10px;
+            border-left: 3px solid #3c3c66;
         }
     </style>
 </head>
@@ -162,11 +144,11 @@
     </p>
 
     <form id="routeForm">
-        <label for="fromCode">Departure Airport ICAO Code:</label>
-        <input type="text" id="fromCode" name="fromCode" placeholder="Departure ICAO (4-letters)" required maxlength="4">
-
-        <label for="toCode">Arrival Airport ICAO Code:</label>
-        <input type="text" id="toCode" name="toCode" placeholder="Arrival ICAO (4-letters)" required maxlength="4">
+        <label for="routeFile">Detailed Route File URL/Name:</label>
+        <input type="text" id="routeFile" name="routeFile" 
+               placeholder="e.g., VABB-OTHH.json" 
+               value="VABB-OTHH.json" 
+               required>
 
         <label for="airwayType">Airway Type:</label>
         <select id="airwayType" name="airwayType" required>
@@ -174,21 +156,25 @@
             <option value="LOW">LOW (Prop/VFR)</option>
         </select>
 
-        <button type="button" id="plotButton" onclick="plotRoute()" disabled>
-            Plot Route & Get Info
+        <button type="button" id="plotButton" onclick="plotDetailedRoute()" disabled>
+            Plot Detailed Route
         </button>
         <button type="button" id="downloadButton" onclick="generateAndDownloadJson()" disabled>
-            Generate GeoFS Route JSON
+            Generate Route Summary JSON
         </button>
     </form>
     
     <div id="flightInfo" class="info-box" style="display:none;">
-        <h2>Route Details</h2>
+        <h2>Summary</h2>
         <p><strong>Departure:</strong> <span id="depName"></span></p>
         <p><strong>Arrival:</strong> <span id="arrName"></span></p>
-        <p><strong>Distance:</strong> <span id="distance">N/A</span></p>
-        <p><strong>Airway:</strong> <span id="airwayDisp">N/A</span></p>
+        <p><strong>Total Distance:</strong> <span id="distance">N/A</span></p>
+        <p><strong>Total Waypoints:</strong> <span id="totalWaypoints">N/A</span></p>
         
+        <h2>Waypoint Details</h2>
+        <div id="waypointDetails" class="waypoint-details">
+            </div>
+
         <h2>Operational Info</h2>
         <p class="alert">Runway info is placeholder. Use real charts for flight!</p>
         <p><strong>Departure Runways:</strong> <span id="depRunways">Simulated: 09/27, 18/36</span></p>
@@ -201,10 +187,13 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
-    // ⚠️ The AIRPORT_DATABASE is loaded asynchronously via the fetch API.
+    // Global variable to hold the main airport database (for lookup purposes only)
     let AIRPORT_DATABASE = {};
-    // Corrected URL for raw GitHub content
-    const DATA_URL = 'https://raw.githubusercontent.com/WEB-DINO/Flight_PLANNERver_2.0/main/Airport_data.json';
+    // Global variable to hold the currently loaded route data
+    let CURRENT_ROUTE_DATA = null;
+
+    // URL to your full airport database (for lookup)
+    const AIRPORT_DATA_URL = 'https://raw.githubusercontent.com/WEB-DINO/Flight_PLANNERver_2.0/main/Airport_data.json';
     
     // --- ELEMENTS ---
     const plotButton = document.getElementById('plotButton');
@@ -212,20 +201,17 @@
     const dataStatus = document.getElementById('dataStatus');
 
     // --- MAP INITIALIZATION & STATE ---
-    let routeLine = null;
-    let fromMarker = null;
-    let toMarker = null;
-    let airportA = null;
-    let airportB = null;
-
-    // Use a darker tile layer for better aesthetic integration with dark mode
+    let routeLayerGroup = L.layerGroup();
+    
     const map = L.map('map').setView([20, 0], 2); 
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
         attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
     }).addTo(map);
 
-    // Custom marker icons for dark theme
+    routeLayerGroup.addTo(map);
+
+    // Custom marker icons
     const orangeIcon = L.icon({
         iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
         shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
@@ -233,6 +219,11 @@
     });
     const redIcon = L.icon({
         iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+        iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+    });
+    const blueIcon = L.icon({
+        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
         shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
         iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
     });
@@ -249,154 +240,196 @@
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         const distanceKm = R * c;
         const distanceNm = distanceKm * 0.539957; // Convert km to Nautical Miles
-
-        return distanceNm.toFixed(0);
+        return distanceNm;
     }
     
-    /** Clears all markers and the route line from the map. */
-    function clearMap() {
-        if (fromMarker) map.removeLayer(fromMarker);
-        if (toMarker) map.removeLayer(toMarker);
-        if (routeLine) map.removeLayer(routeLine);
-        fromMarker = null;
-        toMarker = null;
-        routeLine = null;
+    /** Calculates the initial great-circle bearing (True Course) from point A to point B. */
+    function calculateBearing(lat1, lon1, lat2, lon2) {
+        lat1 = lat1 * (Math.PI / 180);
+        lon1 = lon1 * (Math.PI / 180);
+        lat2 = lat2 * (Math.PI / 180);
+        lon2 = lon2 * (Math.PI / 180);
+
+        const dLon = lon2 - lon1;
+        const y = Math.sin(dLon) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) - 
+                  Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+        
+        let brng = Math.atan2(y, x);
+        brng = brng * (180 / Math.PI); // Convert to degrees
+        brng = (brng + 360) % 360; // Normalize to 0-360
+
+        return Math.round(brng);
     }
 
-    // --- MAIN LOGIC (UPDATED WITH LINEAR SEARCH) ---
+    /** Clears all layers from the map layer group. */
+    function clearMap() {
+        routeLayerGroup.clearLayers();
+    }
 
-    function plotRoute() {
-        // Check that data is loaded
-        if (Object.keys(AIRPORT_DATABASE).length === 0) {
-            alert("Airport data is still loading or failed to load. Please wait or check the console.");
-            return;
-        }
-        
-        // 1. Get and clean codes (forcing user input to UPPERCASE for search)
-        const fromCode = document.getElementById('fromCode').value.toUpperCase().trim();
-        const toCode = document.getElementById('toCode').value.toUpperCase().trim();
-        const airwayType = document.getElementById('airwayType').value;
-        
+    // --- MAIN DETAILED ROUTE PLOTTING LOGIC ---
+
+    async function plotDetailedRoute() {
         clearMap();
 
-        // 2. Lookup airport data using a Linear Search
-        let airportA = null;
-        let airportB = null;
-        
-        // --- START LOOPING SEARCH ---
-        for (const key in AIRPORT_DATABASE) {
-            const airport = AIRPORT_DATABASE[key];
-            
-            // Ensure the icao_code property exists before comparing
-            if (airport.icao_code) {
-                // We compare the UPPERCASE user input to the UPPERCASE ICAO code from the file
-                const airportICAO = airport.icao_code.toUpperCase();
+        const routeFileName = document.getElementById('routeFile').value.trim();
+        const airwayType = document.getElementById('airwayType').value;
+        const infoBox = document.getElementById('flightInfo');
+        const waypointDetailsDiv = document.getElementById('waypointDetails');
 
-                // Check for Departure Airport
-                if (!airportA && airportICAO === fromCode) {
-                    airportA = airport;
-                }
+        infoBox.style.display = 'none';
+        waypointDetailsDiv.innerHTML = '';
 
-                // Check for Arrival Airport
-                if (!airportB && airportICAO === toCode) {
-                    airportB = airport;
-                }
-            }
-
-            // Stop looping once both are found to save time
-            if (airportA && airportB) break;
-        }
-        // ----------------------------
-
-        if (!airportA || !airportB) {
-            alert(`One or both ICAO codes (${fromCode}, ${toCode}) are not found in the database. Please ensure you entered a valid ICAO code (e.g., KJFK).`);
-            document.getElementById('flightInfo').style.display = 'none';
+        if (!routeFileName) {
+            alert("Please enter a route file name (e.g., VABB-OTHH.json).");
             return;
         }
 
-        // 3. Draw route and markers
-        // Use the correct property names from your JSON: latitude_deg and longitude_deg
-        const latLngA = [airportA.latitude_deg, airportA.longitude_deg];
-        const latLngB = [airportB.latitude_deg, airportB.longitude_deg];
-        
-        // Departure marker is orange
-        fromMarker = L.marker(latLngA, { icon: orangeIcon }).addTo(map)
-            .bindPopup(`<b>${fromCode}</b> (${airportA.name})`).openPopup();
+        try {
+            // Assume the route file is hosted on GitHub next to the planner.html
+            const ROUTE_URL = 'https://raw.githubusercontent.com/WEB-DINO/Flight_PLANNERver_2.0/main/' + routeFileName;
+            const response = await fetch(ROUTE_URL);
             
-        // Arrival marker is red
-        toMarker = L.marker(latLngB, { icon: redIcon }).addTo(map)
-            .bindPopup(`<b>${toCode}</b> (${airportB.name})`).openPopup();
-        
-        // Route line is light blue
-        const latlngs = [latLngA, latLngB];
-        routeLine = L.polyline(latlngs, {color: '#00ccff', weight: 4, opacity: 0.8, dashArray: '8, 8'}).addTo(map);
+            if (!response.ok) {
+                throw new Error(`Failed to load route file. Status: ${response.status}`);
+            }
 
-        // Zoom map to fit the route
-        map.fitBounds(routeLine.getBounds(), {padding: [50, 50]});
+            CURRENT_ROUTE_DATA = await response.json();
 
-        // 4. Calculate and display flight info
-        const distanceNm = calculateDistance(airportA.latitude_deg, airportA.longitude_deg, airportB.latitude_deg, airportB.longitude_deg);
+            if (!CURRENT_ROUTE_DATA.nodes || CURRENT_ROUTE_DATA.nodes.length < 2) {
+                alert("Route file loaded, but it must contain an array of 'nodes' with at least two waypoints.");
+                return;
+            }
 
-        document.getElementById('depName').textContent = `${airportA.name} (${fromCode})`;
-        document.getElementById('arrName').textContent = `${airportB.name} (${toCode})`;
-        document.getElementById('distance').textContent = `${distanceNm} Nautical Miles`;
-        document.getElementById('airwayDisp').textContent = airwayType === 'HIGH' ? 'High Airway (Jet)' : 'Low Airway (Prop/VFR)';
-        
-        // Placeholder for runways
-        document.getElementById('depRunways').textContent = 'Simulated: 09/27, 18/36';
-        document.getElementById('arrRunways').textContent = 'Simulated: 09/27, 18/36';
-        
-        document.getElementById('flightInfo').style.display = 'block';
+            const waypoints = CURRENT_ROUTE_DATA.nodes;
+            let totalDistanceNm = 0;
+            const routeCoordinates = [];
+            let detailsHtml = '';
+
+            // Get Departure and Arrival ICAO codes for the display
+            const depCode = waypoints[0].ident.toUpperCase();
+            const arrCode = waypoints[waypoints.length - 1].ident.toUpperCase();
+
+            // 1. Iterate through waypoints to draw segments and calculate distance/course
+            for (let i = 0; i < waypoints.length; i++) {
+                const node = waypoints[i];
+                const lat = node.lat;
+                const lon = node.lon;
+
+                routeCoordinates.push([lat, lon]);
+                
+                let markerIcon = blueIcon;
+                if (i === 0) {
+                    markerIcon = orangeIcon; // Departure
+                } else if (i === waypoints.length - 1) {
+                    markerIcon = redIcon; // Arrival
+                }
+
+                // Add marker
+                const marker = L.marker([lat, lon], { icon: markerIcon }).addTo(routeLayerGroup);
+                let popupContent = `<b>${node.ident}</b> (${node.name || node.type})<br>Alt: ${node.alt} ft`;
+
+                let segmentDistance = 0;
+                let segmentCourse = 0;
+                let viaAirway = '';
+                
+                if (i > 0) {
+                    const prevNode = waypoints[i - 1];
+                    const prevLat = prevNode.lat;
+                    const prevLon = prevNode.lon;
+                    
+                    segmentDistance = calculateDistance(prevLat, prevLon, lat, lon);
+                    segmentCourse = calculateBearing(prevLat, prevLon, lat, lon);
+                    totalDistanceNm += segmentDistance;
+
+                    viaAirway = prevNode.via ? ` via ${prevNode.via.ident} (${prevNode.via.type})` : '';
+
+                    // Add segment info to the popup
+                    popupContent += `<br>Dist from ${prevNode.ident}: ${segmentDistance.toFixed(1)} NM`;
+                    popupContent += `<br>Course: ${segmentCourse.toString().padStart(3, '0')}° True`;
+                    
+                    // Add to detailed sidebar list
+                    detailsHtml += `<p><b>${prevNode.ident}</b> to <b>${node.ident}</b>: ${segmentDistance.toFixed(1)} NM on ${segmentCourse.toString().padStart(3, '0')}° True${viaAirway}</p>`;
+                } else {
+                    detailsHtml += `<p><b>DEPARTURE:</b> ${depCode}</p>`;
+                }
+                
+                marker.bindPopup(popupContent);
+            }
+
+            // 2. Draw the full segmented polyline
+            L.polyline(routeCoordinates, {color: '#00ccff', weight: 4, opacity: 0.8}).addTo(routeLayerGroup);
+
+            // 3. Zoom map to fit the route
+            if (routeCoordinates.length > 0) {
+                map.fitBounds(L.latLngBounds(routeCoordinates), {padding: [50, 50]});
+            }
+
+            // 4. Update Sidebar Display
+            const depAirportName = waypoints[0].name || depCode;
+            const arrAirportName = waypoints[waypoints.length - 1].name || arrCode;
+            
+            document.getElementById('depName').textContent = `${depAirportName} (${depCode})`;
+            document.getElementById('arrName').textContent = `${arrAirportName} (${arrCode})`;
+            document.getElementById('distance').textContent = `${totalDistanceNm.toFixed(0)} Nautical Miles`;
+            document.getElementById('airwayDisp').textContent = airwayType === 'HIGH' ? 'High Airway (Jet)' : 'Low Airway (Prop/VFR)';
+            document.getElementById('totalWaypoints').textContent = waypoints.length;
+            
+            waypointDetailsDiv.innerHTML = detailsHtml;
+
+            document.getElementById('flightInfo').style.display = 'block';
+            downloadButton.disabled = false;
+
+        } catch (error) {
+            console.error('Failed to plot detailed route:', error);
+            alert(`Error plotting route: ${error.message}. Please check the file name and content.`);
+        }
     }
 
     /**
      * Gathers data and triggers the JSON download.
      */
     function generateAndDownloadJson() {
-        if (!airportA || !airportB) {
-            alert("Please plot the route first by clicking 'Plot Route & Get Info'.");
+        if (!CURRENT_ROUTE_DATA) {
+            alert("Please plot the route first.");
             return;
         }
 
-        const fromCode = airportA.icao_code.toUpperCase();
-        const toCode = airportB.icao_code.toUpperCase();
         const airwayType = document.getElementById('airwayType').value;
-        const distanceNm = calculateDistance(airportA.latitude_deg, airportA.longitude_deg, airportB.latitude_deg, airportB.longitude_deg);
+        const depCode = CURRENT_ROUTE_DATA.nodes[0].ident.toUpperCase();
+        const arrCode = CURRENT_ROUTE_DATA.nodes[CURRENT_ROUTE_DATA.nodes.length - 1].ident.toUpperCase();
+        
+        // Re-calculate total distance for summary
+        let totalDistanceNm = 0;
+        for (let i = 1; i < CURRENT_ROUTE_DATA.nodes.length; i++) {
+            const node = CURRENT_ROUTE_DATA.nodes[i];
+            const prevNode = CURRENT_ROUTE_DATA.nodes[i - 1];
+            totalDistanceNm += calculateDistance(prevNode.lat, prevNode.lon, node.lat, node.lon);
+        }
 
-        // 2. Create the GeoFS-compatible JSON object
+        // Create a simplified summary JSON object
         const flightRouteData = {
-            routeId: `${fromCode}-${toCode}-${airwayType}`,
+            routeId: `${depCode}-${arrCode}-${airwayType}`,
             airwayType: airwayType,
-            totalDistanceNm: distanceNm,
-            waypoints: [
-                {
-                    name: fromCode,
-                    fullName: airportA.name,
-                    type: "DEPARTURE",
-                    lat: airportA.latitude_deg.toFixed(6),
-                    lon: airportA.longitude_deg.toFixed(6),
-                    suggested_altitude_ft: airwayType === 'HIGH' ? 30000 : 10000 
-                },
-                {
-                    name: toCode,
-                    fullName: airportB.name,
-                    type: "ARRIVAL",
-                    lat: airportB.latitude_deg.toFixed(6),
-                    lon: airportB.longitude_deg.toFixed(6),
-                    suggested_altitude_ft: 500 // Approach altitude
-                }
-            ],
-            departure_runways: 'Simulated: 09/27, 18/36',
-            arrival_runways: 'Simulated: 09/27, 18/36'
+            totalDistanceNm: totalDistanceNm.toFixed(0),
+            totalWaypoints: CURRENT_ROUTE_DATA.nodes.length,
+            waypoints: CURRENT_ROUTE_DATA.nodes.map(node => ({
+                ident: node.ident,
+                type: node.type,
+                name: node.name,
+                lat: node.lat.toFixed(6),
+                lon: node.lon.toFixed(6),
+                alt: node.alt
+            }))
         };
 
-        // 3. Convert object to JSON string and download
+        // Convert object to JSON string and download
         const jsonString = JSON.stringify(flightRouteData, null, 2); 
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `geofs_route_${fromCode}_${toCode}.json`;
+        a.download = `detailed_route_${depCode}_${arrCode}.json`;
         
         document.body.appendChild(a);
         a.click();
@@ -405,34 +438,28 @@
         URL.revokeObjectURL(url);
     }
     
-    // --- ASYNCHRONOUS DATA LOADING ---
+    // --- ASYNCHRONOUS DATA LOADING (Initial, background load for general use) ---
 
     async function loadAirportData() {
         try {
-            dataStatus.textContent = 'Fetching data...';
-            const response = await fetch(DATA_URL);
+            dataStatus.textContent = 'Fetching main airport index...';
+            const response = await fetch(AIRPORT_DATA_URL);
             
             if (!response.ok) {
-                // If we get a 404 or other network error
-                throw new Error(`HTTP error! Status: ${response.status}. Check if the URL is correct and the file exists.`);
+                throw new Error(`HTTP error! Status: ${response.status}`);
             }
 
             const data = await response.json();
-            
-            // Assign the fetched data to the global variable
             AIRPORT_DATABASE = data;
             
-            // Enable the interface
-            dataStatus.textContent = `✅ Data Loaded! ${Object.keys(AIRPORT_DATABASE).length} airports ready.`;
+            dataStatus.textContent = `✅ Index Loaded! ${Object.keys(AIRPORT_DATABASE).length} airports ready.`;
             dataStatus.style.backgroundColor = '#218838'; // Green background for success
             plotButton.disabled = false;
-            downloadButton.disabled = false;
-            console.log(`Successfully loaded ${Object.keys(AIRPORT_DATABASE).length} airports.`);
 
         } catch (error) {
-            console.error('Failed to load airport data:', error);
-            dataStatus.textContent = '❌ Data Load FAILED! Check console for errors.';
-            dataStatus.style.backgroundColor = '#dc3545'; // Red background for failure
+            console.error('Failed to load main airport data index:', error);
+            dataStatus.textContent = '⚠️ Index Load Warning (Detailed plotting is fine).';
+            dataStatus.style.backgroundColor = '#ffc107'; // Yellow background for warning
         }
     }
 
